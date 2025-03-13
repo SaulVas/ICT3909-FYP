@@ -1,0 +1,38 @@
+{
+    "feature_names": [
+        "sog",
+        "twd",
+        "cog",
+        "tws",
+        "mainsheet_length",
+        "jibsheet_length",
+        "cunningham_length",
+        "outhaul_length",
+        "vang_length",
+        "traveller_length"
+    ],
+    "mean": {
+        "sog": 7.746666666666666,
+        "twd": 175.9486991869919,
+        "cog": 182.83593495934957,
+        "tws": 13.876178861788619,
+        "mainsheet_length": 1.7235772357723578,
+        "jibsheet_length": 1.4552845528455285,
+        "cunningham_length": 0.8657723577235772,
+        "outhaul_length": 1.160325203252033,
+        "vang_length": 1.2487804878048778,
+        "traveller_length": -0.06487804878048781
+    },
+    "std": {
+        "sog": 4.160839242007793,
+        "twd": 105.53629906848218,
+        "cog": 101.87320542456413,
+        "tws": 7.279849292678113,
+        "mainsheet_length": 0.8769942478154017,
+        "jibsheet_length": 0.718535463086273,
+        "cunningham_length": 0.4738735177034269,
+        "outhaul_length": 0.6107265231777343,
+        "vang_length": 0.6343315864518286,
+        "traveller_length": 0.31605383367126966
+    }
+}
