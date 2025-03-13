@@ -16,10 +16,44 @@ outhaul_lengths = np.linspace(0.3, 2.0, 5)  # 5 discrete values between 0.3 and 
 vang_lengths = np.linspace(0.4, 2.2, 5)  # 5 discrete values between 0.4 and 2.2
 traveller_lengths = np.linspace(-0.5, 0.5, 7)  # 7 discrete values between -0.5 and 0.5
 
-# Define TCD (Target Course Deviation) values
-tcd_low_values = [random.uniform(0, 30), random.uniform(0, 1), random.uniform(0, 1)]
-tcd_med_values = [random.uniform(0, 30), random.uniform(0, 1), random.uniform(0, 1)]
-tcd_high_values = [random.uniform(0, 30), random.uniform(0, 1), random.uniform(0, 1)]
+
+# Function to generate TCD values for each row
+def generate_tcd_values(n_rows):
+    tcd_low = []
+    tcd_med = []
+    tcd_high = []
+
+    for _ in range(n_rows):
+        # Generate 3 values for each TCD level: one angle (0-30) and two floats (0-1)
+        tcd_low.append(
+            [
+                round(random.uniform(0, 30), 2),
+                round(random.uniform(0, 1), 2),
+                round(random.uniform(0, 1), 2),
+            ]
+        )
+
+        tcd_med.append(
+            [
+                round(random.uniform(0, 30), 2),
+                round(random.uniform(0, 1), 2),
+                round(random.uniform(0, 1), 2),
+            ]
+        )
+
+        tcd_high.append(
+            [
+                round(random.uniform(0, 30), 2),
+                round(random.uniform(0, 1), 2),
+                round(random.uniform(0, 1), 2),
+            ]
+        )
+
+    return tcd_low, tcd_med, tcd_high
+
+
+# Generate TCD values
+tcd_low_values, tcd_med_values, tcd_high_values = generate_tcd_values(num_rows)
 
 # Generate data
 data = {
@@ -35,12 +69,11 @@ data = {
     "outhaul_length": np.random.choice(outhaul_lengths, num_rows),
     "vang_length": np.random.choice(vang_lengths, num_rows),
     "traveller_length": np.random.choice(traveller_lengths, num_rows),
-    "tcd_low": np.random.choice(tcd_low_values, num_rows),
-    "tcd_med": np.random.choice(tcd_med_values, num_rows),
-    "tcd_high": np.random.choice(tcd_high_values, num_rows),
+    "tcd_low": tcd_low_values,
+    "tcd_med": tcd_med_values,
+    "tcd_high": tcd_high_values,
     "image_name": [f"mainsail_{i}.jpg" for i in range(num_rows)],
 }
-
 # Create DataFrame
 df = pd.DataFrame(data)
 
