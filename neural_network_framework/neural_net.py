@@ -2,15 +2,15 @@ import torch.nn as nn
 
 
 class FeedForwardNN(nn.Module):
-    def __init__(self, input_dim, hidden_layers, dropout_rates, output_dim=1):
+    def __init__(self, input_dim, output_dim, hidden_layers, dropout_rates):
         """
         A flexible feed-forward neural network with configurable architecture.
 
         Args:
             input_dim (int): Dimension of input features
+            output_dim (int): Dimension of output (default: 1 for regression)
             hidden_layers (list): List of integers representing the size of each hidden layer
             dropout_rates (list): List of dropout rates for each layer
-            output_dim (int): Dimension of output (default: 1 for regression)
         """
         super(FeedForwardNN, self).__init__()
 

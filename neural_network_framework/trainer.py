@@ -7,7 +7,9 @@ import time
 
 
 class Trainer:
-    def __init__(self, model, device, learning_rate=0.001, weight_decay=0):
+    def __init__(
+        self, model, device, learning_rate=0.001, weight_decay=0, visualizer=None
+    ):
         """
         Trainer class to handle training, validation, and testing of neural networks.
 
@@ -16,6 +18,7 @@ class Trainer:
             device: The device to run computations on (CPU or GPU)
             learning_rate: Learning rate for optimizer
             weight_decay: L2 regularization strength
+            visualizer: Visualizer instance for plotting (optional)
         """
         self.model = model
         self.device = device
@@ -23,6 +26,7 @@ class Trainer:
         self.optimizer = optim.Adam(
             model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
+        self.visualizer = visualizer
 
     def _check_tensor(self, data, name="data"):
         """Ensure data is a PyTorch tensor on the correct device"""
@@ -78,7 +82,7 @@ class Trainer:
         self,
         train_loader,
         val_loader,
-        epochs=100,
+        epochs=2000,
         early_stopping_patience=30,
         verbose=True,
     ):
@@ -100,9 +104,17 @@ class Trainer:
         best_val_loss = float("inf")
         patience_counter = 0
 
+        # Track losses for plotting
+        train_losses = []
+        val_losses = []
+
         for epoch in range(epochs):
             train_loss = self.train_epoch(train_loader)
             val_loss = self.validate(val_loader)
+
+            # Store losses
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
 
             if verbose and epoch % 10 == 0:
                 print(
@@ -127,24 +139,48 @@ class Trainer:
         # Load best model
         self.model.load_state_dict(torch.load("best_model.pt"))
 
+        # Save training history plot if visualizer is available
+        if self.visualizer is not None:
+            self.visualizer.save_training_history(train_losses, val_losses, epochs)
+
         return best_val_loss, training_time
 
     def test(self, test_loader):
-        """Test the model and return MSE"""
+        """
+        Test the model on the test set.
+
+        Args:
+            test_loader: DataLoader for test data
+
+        Returns:
+            test_loss: Test loss
+        """
         self.model.eval()
         test_loss = 0.0
 
+        # For visualization
+        all_targets = []
+        all_outputs = []
+
         with torch.no_grad():
             for inputs, targets in test_loader:
-                # Ensure inputs and targets are tensors
                 inputs = self._check_tensor(inputs, "inputs")
                 targets = self._check_tensor(targets, "targets")
 
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
-                test_loss += loss.item() * inputs.size(0)
+                test_loss += loss.item()
 
-        test_loss = test_loss / len(test_loader.dataset)
+                # Store for visualization
+                all_targets.append(targets)
+                all_outputs.append(outputs)
+
+        # Save model performance plots if visualizer is available
+        if self.visualizer is not None and len(all_targets) > 0:
+            all_targets = torch.cat(all_targets, dim=0)
+            all_outputs = torch.cat(all_outputs, dim=0)
+            self.visualizer.save_model_performance(all_targets, all_outputs, "test")
+
         return test_loss
 
     def k_fold_cross_validation(
@@ -152,7 +188,7 @@ class Trainer:
         dataset,
         n_splits=5,
         batch_size=20,
-        epochs=100,
+        epochs=2000,
         learning_rate=0.001,
         weight_decay=0,
         verbose=True,
