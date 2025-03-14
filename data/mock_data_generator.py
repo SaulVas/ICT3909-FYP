@@ -1,6 +1,6 @@
+import random
 import pandas as pd
 import numpy as np
-import random
 
 # Set random seed for reproducibility
 np.random.seed(42)
