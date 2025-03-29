@@ -24,7 +24,7 @@ N_TRIALS = 10
 visualizer = Visualizer(output_dir="plots")
 
 # Check target dimensions before training
-preprocessor = Preprocessing("../data/mock_dataset.csv", device=device)
+preprocessor = Preprocessing("../data/mock/mock_dataset.csv", device=device)
 preprocessor.preprocess()
 
 X_train, y_train, X_val, y_val, X_test, y_test = preprocessor.split_data()
