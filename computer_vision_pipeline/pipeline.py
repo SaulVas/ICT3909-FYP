@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 from functools import partial
 
+RED = (0, 0, 255)
+GREEN = (0, 255, 0)
+BLUE = (255, 0, 0)
+
 
 class SplineDetector:
     def __init__(self, input_images: list[str]):
@@ -35,36 +39,14 @@ class SplineDetector:
 
             edges, contours = self._extract_edges(dilated)
 
-            # SECTION 4: HEIGHT MASK CREATION
-            # Create height mask using largest contour
             mask = self._create_height_mask(edges, contours)
-            # SECTION 5: CONTOUR PROCESSING AND SORTING
-            # Sort contours by masked length
+
+            # sort contours by length
             get_length = partial(self._get_masked_contour_length, edges, mask=mask)
             sorted_contours = sorted(contours, key=get_length, reverse=True)
+
             colored_edges = np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
-            colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]  # Red, Green, Blue
-
-            def average_y_coordinates(masked_points):
-                y_coords = masked_points[0]
-                x_coords = masked_points[1]
-
-                # Create a dictionary to store all y values for each x coordinate
-                x_to_y_map = {}
-                for x, y in zip(x_coords, y_coords):
-                    if x not in x_to_y_map:
-                        x_to_y_map[x] = []
-                    x_to_y_map[x].append(y)
-
-                # Calculate average y for each x
-                averaged_points = np.zeros((2, len(x_to_y_map)), dtype=np.int32)
-                for idx, (x, y_list) in enumerate(x_to_y_map.items()):
-                    averaged_points[1, idx] = x  # x coordinate
-                    averaged_points[0, idx] = int(
-                        np.mean(y_list)
-                    )  # average y coordinate
-
-                return tuple(averaged_points)
+            colors = [RED, GREEN, BLUE]
 
             # SECTION 6: SPLINE DRAWING
             # Draw the longest contour first
@@ -77,7 +59,7 @@ class SplineDetector:
                 )
                 > 0
             )
-            averaged_points = average_y_coordinates(masked_points)
+            averaged_points = self._average_y_coordinates(masked_points)
             colored_edges[averaged_points] = colors[0]
 
             # Process remaining contours
@@ -90,7 +72,7 @@ class SplineDetector:
 
                 # Find the masked contour points and average them
                 masked_points = np.where(masked_contour > 0)
-                averaged_points = average_y_coordinates(masked_points)
+                averaged_points = self._average_y_coordinates(masked_points)
 
                 # Draw only the averaged portions of the contour
                 colored_edges[averaged_points] = colors[i]
@@ -192,6 +174,25 @@ class SplineDetector:
         masked_contour = cv2.bitwise_and(temp_mask, mask)
 
         return np.count_nonzero(masked_contour)
+
+    def _average_y_coordinates(self, masked_points: np.ndarray) -> np.ndarray:
+        y_coords = masked_points[0]
+        x_coords = masked_points[1]
+
+        # Create a dictionary to store all y values for each x coordinate
+        x_to_y_map = {}
+        for x, y in zip(x_coords, y_coords):
+            if x not in x_to_y_map:
+                x_to_y_map[x] = []
+            x_to_y_map[x].append(y)
+
+        # Calculate average y for each x
+        averaged_points = np.zeros((2, len(x_to_y_map)), dtype=np.int32)
+        for idx, (x, y_list) in enumerate(x_to_y_map.items()):
+            averaged_points[1, idx] = x  # x coordinate
+            averaged_points[0, idx] = int(np.mean(y_list))  # average y coordinate
+
+        return tuple(averaged_points)
 
     def _save_image(
         self,
