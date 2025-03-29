@@ -172,3 +172,5 @@ cython_debug/
 
 neural_network_framework/plots/*
 neural_network_framework/models/*
+
+data/on_water_dataset/*
