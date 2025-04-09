@@ -60,7 +60,7 @@ class SplineDetector:
                 for j in range(len(x_coords) - 1):
                     pt1 = (x_coords[j], y_coords[j])
                     pt2 = (x_coords[j + 1], y_coords[j + 1])
-                    cv2.line(colored_edges, pt1, pt2, RED, 2)
+                    cv2.line(colored_edges, pt1, pt2, GREEN, 2)
 
         overlay = image.copy()
         overlay = cv2.addWeighted(overlay, 1.0, colored_edges, 1.0, 0)
