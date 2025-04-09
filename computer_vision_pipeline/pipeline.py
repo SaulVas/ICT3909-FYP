@@ -6,9 +6,11 @@ from functools import partial
 import cv2
 import numpy as np
 
-RED = (0, 0, 255)
 GREEN = (0, 255, 0)
 BLUE = (255, 0, 0)
+YELLOW = (0, 255, 255)
+
+COLOURS = [YELLOW, GREEN, BLUE]
 
 
 class SplineDetector:
@@ -36,17 +38,21 @@ class SplineDetector:
         blurred = cv2.GaussianBlur(gray_scale, (25, 25), 0)
         kernel = np.ones((3, 3), np.uint8)
         dilated = cv2.dilate(blurred, kernel, iterations=10)
+        eroded = cv2.erode(dilated, kernel, iterations=10)
 
-        edges, contours = self._extract_edges(dilated)
+        edges, contours, _ = self._extract_edges(eroded)
 
-        mask = self._create_height_mask(edges, contours)
+        mask, longest_contour, second_longest_contour = self._create_height_mask(
+            edges, contours, image_path
+        )
 
         # sort contours by length
         get_length = partial(self._get_masked_contour_length, edges, mask=mask)
         sorted_contours = sorted(contours, key=get_length, reverse=True)
 
+        longest_contours = [longest_contour, second_longest_contour, sorted_contours[2]]
         colored_edges, spline_points = self._draw_splines(
-            edges, sorted_contours, mask, [RED, GREEN, BLUE]
+            edges, longest_contours, mask, COLOURS
         )
 
         # Draw lines between points(only for visual purposes)
@@ -60,13 +66,12 @@ class SplineDetector:
                 for j in range(len(x_coords) - 1):
                     pt1 = (x_coords[j], y_coords[j])
                     pt2 = (x_coords[j + 1], y_coords[j + 1])
-                    cv2.line(colored_edges, pt1, pt2, GREEN, 2)
+                    cv2.line(colored_edges, pt1, pt2, COLOURS[color_idx], 2)
 
         overlay = image.copy()
         overlay = cv2.addWeighted(overlay, 1.0, colored_edges, 1.0, 0)
         self._save_image(
             base_name,
-            image=image,
             overlay=overlay,
         )
 
@@ -79,9 +84,9 @@ class SplineDetector:
         # Expanded HSV ranges to include all values
         ranges = [
             # Red at start of hue circle (0-15)
-            ([0, 5, 20], [15, 255, 255]),  # Lowered S minimum to catch desaturated reds
+            ([0, 3, 20], [15, 255, 255]),  # Lowered S minimum to catch desaturated reds
             # Purple/magenta through red range (135-180)
-            ([135, 5, 20], [180, 255, 255]),  # Expanded range to catch all distant reds
+            ([145, 3, 20], [180, 255, 255]),
         ]
 
         # Create and combine all masks
@@ -95,7 +100,9 @@ class SplineDetector:
 
         return red_pixels
 
-    def _extract_edges(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _extract_edges(
+        self, image: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         _, binary = cv2.threshold(image, 10, 255, cv2.THRESH_BINARY)
         edges = cv2.Canny(binary, threshold1=50, threshold2=150)
 
@@ -105,16 +112,20 @@ class SplineDetector:
         if not contours:
             raise ValueError("No contours found in the edge image")
 
-        return edges, contours
+        # Create a visualization of the contours
+        contour_vis = np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
+        cv2.drawContours(contour_vis, contours, -1, (0, 255, 0), 2)
+
+        return edges, contours, contour_vis
 
     def _create_height_mask(
-        self, edges: np.ndarray, contours: list[np.ndarray]
+        self, edges: np.ndarray, contours: list[np.ndarray], base_name: str
     ) -> np.ndarray:
-        mask = np.zeros_like(edges)
-
-        largest_contour = max(contours, key=cv2.contourArea)
+        # First create the height mask based on the longest contour
+        height_mask = np.zeros_like(edges)
+        longest_contour = max(contours, key=lambda cnt: cv2.arcLength(cnt, closed=True))
         longest_contour_mask = np.zeros_like(edges)
-        cv2.drawContours(longest_contour_mask, [largest_contour], -1, 255, -1)
+        cv2.drawContours(longest_contour_mask, [longest_contour], -1, 255, -1)
 
         longest_y_coords = np.where(longest_contour_mask > 0)[0]
         if len(longest_y_coords) > 0:
@@ -122,9 +133,56 @@ class SplineDetector:
                 column_mask = longest_contour_mask[:, x]
                 y_coords = np.where(column_mask > 0)[0]
                 if len(y_coords) > 0:
-                    mask[: y_coords[-1], x] = 255
+                    height_mask[: y_coords[-1], x] = 255
 
-        return mask
+        # Filter contours to only include those within the height mask
+        filtered_contours = []
+        for contour in contours:
+            # Create a mask for this contour
+            contour_mask = np.zeros_like(edges)
+            cv2.drawContours(contour_mask, [contour], -1, 255, -1)
+
+            # Check if the contour is within the height mask
+            masked_contour = cv2.bitwise_and(contour_mask, height_mask)
+            if np.any(masked_contour > 0):
+                filtered_contours.append(contour)
+
+        if len(filtered_contours) < 2:
+            raise ValueError(
+                f"Need at least 2 contours within height mask, base_name: {base_name}"
+            )
+
+        # Sort the filtered contours by length
+        sorted_filtered_contours = sorted(
+            filtered_contours,
+            key=lambda cnt: cv2.arcLength(cnt, closed=True),
+            reverse=True,
+        )
+        second_longest_contour = sorted_filtered_contours[1]
+
+        # Create a mask for the second longest contour within height mask
+        second_longest_mask = np.zeros_like(edges)
+        cv2.drawContours(second_longest_mask, [second_longest_contour], -1, 255, -1)
+
+        # For each column, find the topmost point of the second longest contour
+        combined_mask = np.zeros_like(edges)
+        for x in range(edges.shape[1]):
+            column_mask = second_longest_mask[:, x]
+            y_coords = np.where(column_mask > 0)[0]
+            if len(y_coords) > 0:
+                # Fill everything above the topmost point of the second longest contour
+                combined_mask[: y_coords[0], x] = 255
+
+        # Draw both contours on the combined mask for visualization
+        cv2.drawContours(
+            combined_mask,
+            [sorted_filtered_contours[0], second_longest_contour],
+            -1,
+            255,
+            1,
+        )
+
+        return combined_mask, longest_contour, second_longest_contour
 
     def _get_masked_contour_length(
         self, edges: np.ndarray, contour: np.ndarray, mask: np.ndarray
@@ -217,7 +275,9 @@ class SplineDetector:
         gray_scale: np.ndarray = None,
         blurred: np.ndarray = None,
         dilated: np.ndarray = None,
-        binary: np.ndarray = None,
+        eroded: np.ndarray = None,
+        edges: np.ndarray = None,
+        contour_vis: np.ndarray = None,
         colored_edges: np.ndarray = None,
         overlay: np.ndarray = None,
     ):
@@ -236,8 +296,14 @@ class SplineDetector:
         if dilated is not None:
             cv2.imwrite(str(self.output_dir / f"{base_name}_dilated.png"), dilated)
 
-        if binary is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_binary.png"), binary)
+        if eroded is not None:
+            cv2.imwrite(str(self.output_dir / f"{base_name}_eroded.png"), eroded)
+
+        if edges is not None:
+            cv2.imwrite(str(self.output_dir / f"{base_name}_edges.png"), edges)
+
+        if contour_vis is not None:
+            cv2.imwrite(str(self.output_dir / f"{base_name}_contours.png"), contour_vis)
 
         if colored_edges is not None:
             cv2.imwrite(
