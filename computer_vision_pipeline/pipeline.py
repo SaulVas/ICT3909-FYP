@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-from functools import partial
 import cv2
 import numpy as np
 
@@ -16,7 +15,7 @@ COLOURS = [YELLOW, GREEN, BLUE]
 class SplineDetector:
     def __init__(self, input_images: list[str]):
         self.image_paths = input_images
-        # Create output directory if it doesn't exist
+        # Create base output directory if it doesn't exist
         self.output_dir = Path("outputs")
         self.output_dir.mkdir(exist_ok=True)
 
@@ -38,48 +37,112 @@ class SplineDetector:
         blurred = cv2.GaussianBlur(gray_scale, (25, 25), 0)
         kernel = np.ones((3, 3), np.uint8)
         dilated = cv2.dilate(blurred, kernel, iterations=10)
-        eroded = cv2.erode(dilated, kernel, iterations=10)
+        eroded = cv2.erode(dilated, kernel, iterations=5)
 
-        edges, contours, _ = self._extract_edges(eroded)
+        edges, contours_all, _ = self._extract_edges(eroded)
 
-        mask, longest_contour, second_longest_contour = self._create_height_mask(
-            edges, contours, image_path
-        )
+        # Find the prioritized contours
+        prioritized_contours = self._find_contours_by_priority(contours_all)
 
-        # sort contours by length
-        get_length = partial(self._get_masked_contour_length, edges, mask=mask)
-        sorted_contours = sorted(contours, key=get_length, reverse=True)
+        # # --- Debug: Save candidates for contour 2 ---
+        # if remaining_after_c1:  # Only save if there are candidates
+        #     debug_img_c2 = np.zeros_like(edges)  # Create black canvas
+        #     cv2.drawContours(
+        #         debug_img_c2, remaining_after_c1, -1, 255, 1
+        #     )  # Draw candidates in white
 
-        longest_contours = [longest_contour, second_longest_contour, sorted_contours[2]]
-        colored_edges, spline_points = self._draw_splines(
-            edges, longest_contours, mask, COLOURS
-        )
+        #     # Determine output path
+        #     input_path = Path(image_path)
+        #     subdir_name = input_path.parent.name
+        #     output_subdir = self.output_dir / subdir_name
+        #     output_subdir.mkdir(exist_ok=True)
+        #     debug_filename = output_subdir / f"{base_name}_debug_candidates_1.png"
+        #     cv2.imwrite(str(debug_filename), debug_img_c2)
+        # # --- End Debug ---
+
+        # if remaining_after_c2:  # Only save if there are candidates
+        #     debug_img_c2 = np.zeros_like(edges)  # Create black canvas
+        #     cv2.drawContours(
+        #         debug_img_c2, remaining_after_c2, -1, 255, 1
+        #     )  # Draw candidates in white
+
+        #     # Determine output path
+        #     input_path = Path(image_path)
+        #     subdir_name = input_path.parent.name
+        #     output_subdir = self.output_dir / subdir_name
+        #     output_subdir.mkdir(exist_ok=True)
+        #     debug_filename = output_subdir / f"{base_name}_debug_candidates_2.png"
+        #     cv2.imwrite(str(debug_filename), debug_img_c2)
+        # # --- End Debug ---
+
+        # if remaining_after_c3:  # Only save if there are candidates
+        #     debug_img_c2 = np.zeros_like(edges)  # Create black canvas
+        #     cv2.drawContours(
+        #         debug_img_c2, remaining_after_c3, -1, 255, 1
+        #     )  # Draw candidates in white
+
+        #     # Determine output path
+        #     input_path = Path(image_path)
+        #     subdir_name = input_path.parent.name
+        #     output_subdir = self.output_dir / subdir_name
+        #     output_subdir.mkdir(exist_ok=True)
+        #     debug_filename = output_subdir / f"{base_name}_debug_candidates_3.png"
+        #     cv2.imwrite(str(debug_filename), debug_img_c2)
+        # # --- End Debug ---
+
+        # Calculate spline points from the selected contours
+        spline_points = self._calculate_spline_points(prioritized_contours)
+
+        # Create visualization of the splines
+        colored_edges = self._create_spline_visualization(edges, spline_points, COLOURS)
 
         # Draw lines between points(only for visual purposes)
-        for color_idx in range(3):
+        for color_idx, contour in enumerate(prioritized_contours):
+            if contour is None:
+                continue
             points = spline_points[color_idx]
-            if len(points) > 0:
+            if points is not None and len(points) > 1:
+                # Sort points by x-coordinate for line drawing
                 sorted_indices = np.argsort(points[:, 0])
-                y_coords = points[sorted_indices, 1]
-                x_coords = points[sorted_indices, 0]
+                sorted_points = points[sorted_indices]
 
-                for j in range(len(x_coords) - 1):
-                    pt1 = (x_coords[j], y_coords[j])
-                    pt2 = (x_coords[j + 1], y_coords[j + 1])
+                for j in range(len(sorted_points) - 1):
+                    pt1 = tuple(sorted_points[j].astype(int))
+                    pt2 = tuple(sorted_points[j + 1].astype(int))
                     cv2.line(colored_edges, pt1, pt2, COLOURS[color_idx], 2)
 
         overlay = image.copy()
         overlay = cv2.addWeighted(overlay, 1.0, colored_edges, 1.0, 0)
         self._save_image(
             base_name,
+            image_path,
+            image=image,
+            gray_scale=gray_scale,
+            blurred=blurred,
+            dilated=dilated,
+            eroded=eroded,
+            edges=edges,
+            colored_edges=colored_edges,
             overlay=overlay,
         )
 
-        return spline_points
+        # Ensure spline_points has the correct structure even with None contours
+        final_spline_points = np.array(
+            [pts if pts is not None else np.array([]) for pts in spline_points],
+            dtype=object,
+        )
+        print(f"Processed {image_path}")
+        return final_spline_points
 
     def _extract_red_pixels(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # Convert directly to HSV
         hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+        # Create a mask for the upper 2/3 of the image
+        height = image.shape[0]
+        upper_height = int(height * 2 / 3)
+        upper_mask = np.zeros_like(hsv_image[:, :, 0])
+        upper_mask[:upper_height, :] = 255
 
         # Expanded HSV ranges to include all values
         ranges = [
@@ -94,6 +157,9 @@ class SplineDetector:
         for lower, upper in ranges:
             mask = cv2.inRange(hsv_image, np.array(lower), np.array(upper))
             combined_mask = cv2.bitwise_or(combined_mask, mask)
+
+        # Combine with upper mask
+        combined_mask = cv2.bitwise_and(combined_mask, upper_mask)
 
         # Apply mask to get only red pixels
         red_pixels = cv2.bitwise_and(image, image, mask=combined_mask)
@@ -110,7 +176,9 @@ class SplineDetector:
             edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         if not contours:
-            raise ValueError("No contours found in the edge image")
+            # Return empty list instead of raising error if no contours found
+            print("Warning: No contours found in the edge image")
+            return edges, [], np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
 
         # Create a visualization of the contours
         contour_vis = np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
@@ -118,84 +186,168 @@ class SplineDetector:
 
         return edges, contours, contour_vis
 
-    def _create_height_mask(
-        self, edges: np.ndarray, contours: list[np.ndarray], base_name: str
+    def _get_horizontal_extent(self, contour: np.ndarray) -> int:
+        """Calculates the horizontal extent (width) of a contour."""
+        if contour is None or len(contour) == 0:
+            return 0
+        min_x = np.min(contour[:, :, 0])
+        max_x = np.max(contour[:, :, 0])
+        return max_x - min_x
+
+    def _get_highest_y_coordinate(self, contour: np.ndarray) -> int | None:
+        """Calculates the highest y-coordinate of a contour.
+        Returns None if the contour is empty or None.
+
+        (highest y-coordinate, lowest y-coordinate as (0, 0) is top left)
+        """
+        if contour is None or len(contour) == 0:
+            return None
+        highest_cord = np.min(contour[:, :, 1])
+        return highest_cord
+
+    def _find_contours_by_priority(self, contours: list[np.ndarray]) -> tuple[
+        list[np.ndarray | None],
+        list[np.ndarray],
+        list[np.ndarray],
+        list[np.ndarray],
+        list[np.ndarray],  # Added return type for candidates_2 list
+    ]:
+        """
+        Finds three contours based on horizontal extent and vertical positioning.
+
+        1. Longest horizontal extent.
+        2. Longest horizontal extent among contours entirely above the first.
+        3. Longest horizontal extent among contours entirely above the second.
+
+        Args:
+            contours: List of contours found in the image.
+
+        Returns:
+            A tuple containing:
+            - selected_contours: List containing up to three selected contours [c1, c2, c3],
+                                 with None placeholders if fewer than three are found.
+        """
+        empty_return = [None, None, None]
+        if not contours:
+            return empty_return
+
+        # Calculate extents and store with contours
+        contours_with_extents = []
+        for c in contours:
+            extent = self._get_horizontal_extent(c)
+            if extent > 0:  # Ignore points or vertical lines if necessary
+                contours_with_extents.append((extent, c))
+
+        if not contours_with_extents:
+            return empty_return
+
+        # Sort by extent descending
+        contours_with_extents.sort(key=lambda item: item[0], reverse=True)
+
+        selected_contours = [None, None, None]
+
+        available_contours_data = list(contours_with_extents)  # Use list copy
+
+        # --- Select Contour 1 ---
+        if not available_contours_data:
+            return empty_return  # Should not happen here, but defensive check
+
+        selected_contours[0] = available_contours_data[0][1]
+        available_contours_data.pop(0)
+
+        top_y1 = self._get_highest_y_coordinate(selected_contours[0])
+        if top_y1 is None:  # Should not happen if extent > 0 but handle defensively
+            # Only C1 selected
+            return selected_contours
+
+        # --- Select Contour 2 ---
+        candidates_2_data = []  # Store tuples (extent, contour)
+
+        for extent, c in available_contours_data:
+            top_yc = self._get_highest_y_coordinate(c)
+            # Ensure contour has points before checking bounds
+            if top_yc is not None and top_yc < top_y1:
+                candidates_2_data.append((extent, c))
+
+        if candidates_2_data:  # Check if the data list (with extents) is populated
+            candidates_2_data.sort(key=lambda item: item[0], reverse=True)
+            selected_contours[1] = candidates_2_data[0][1]
+            candidates_2_data.pop(0)
+
+            top_y2 = self._get_highest_y_coordinate(selected_contours[1])
+            if top_y2 is None:
+                # Only C1, C2 selected, C3 remaining list is same as C2's
+                return selected_contours
+
+            # --- Select Contour 3 ---
+            candidates_3 = []
+            for extent, c in candidates_2_data:
+                top_yc = self._get_highest_y_coordinate(c)
+                if top_yc is not None and top_yc < top_y2:
+                    candidates_3.append((extent, c))
+
+            if candidates_3:
+                candidates_3.sort(key=lambda item: item[0], reverse=True)
+                selected_contours[2] = candidates_3[0][1]
+
+        return selected_contours
+
+    def _calculate_spline_points(
+        self, selected_contours: list[np.ndarray | None]
     ) -> np.ndarray:
-        # First create the height mask based on the longest contour
-        height_mask = np.zeros_like(edges)
-        longest_contour = max(contours, key=lambda cnt: cv2.arcLength(cnt, closed=True))
-        longest_contour_mask = np.zeros_like(edges)
-        cv2.drawContours(longest_contour_mask, [longest_contour], -1, 255, -1)
-
-        longest_y_coords = np.where(longest_contour_mask > 0)[0]
-        if len(longest_y_coords) > 0:
-            for x in range(edges.shape[1]):
-                column_mask = longest_contour_mask[:, x]
-                y_coords = np.where(column_mask > 0)[0]
-                if len(y_coords) > 0:
-                    height_mask[: y_coords[-1], x] = 255
-
-        # Filter contours to only include those within the height mask
-        filtered_contours = []
-        for contour in contours:
-            # Create a mask for this contour
-            contour_mask = np.zeros_like(edges)
-            cv2.drawContours(contour_mask, [contour], -1, 255, -1)
-
-            # Check if the contour is within the height mask
-            masked_contour = cv2.bitwise_and(contour_mask, height_mask)
-            if np.any(masked_contour > 0):
-                filtered_contours.append(contour)
-
-        if len(filtered_contours) < 2:
-            raise ValueError(
-                f"Need at least 2 contours within height mask, base_name: {base_name}"
+        """Calculates the averaged spline points for selected contours."""
+        spline_points = np.empty(3, dtype=object)
+        for i, contour in enumerate(selected_contours):
+            if contour is None:
+                spline_points[i] = None
+                continue
+            averaged_points_coords = self._average_y_coordinates(contour)
+            if averaged_points_coords is None:
+                spline_points[i] = None
+                continue
+            points_array = np.column_stack(
+                (averaged_points_coords[1], averaged_points_coords[0])
             )
+            spline_points[i] = points_array
+        return spline_points
 
-        # Sort the filtered contours by length
-        sorted_filtered_contours = sorted(
-            filtered_contours,
-            key=lambda cnt: cv2.arcLength(cnt, closed=True),
-            reverse=True,
-        )
-        second_longest_contour = sorted_filtered_contours[1]
+    def _create_spline_visualization(
+        self,
+        edges: np.ndarray,
+        spline_points: np.ndarray,  # Takes the calculated points
+        colors: list[tuple[int, int, int]],
+    ) -> np.ndarray:
+        """Creates an image visualizing the calculated spline points."""
+        colored_edges = np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
+        for i, points_array in enumerate(spline_points):
+            if points_array is None or points_array.size == 0:
+                continue
 
-        # Create a mask for the second longest contour within height mask
-        second_longest_mask = np.zeros_like(edges)
-        cv2.drawContours(second_longest_mask, [second_longest_contour], -1, 255, -1)
+            # Average points are already calculated, need coords for drawing
+            # points_array is (N, 2) -> [[x1,y1], [x2,y2], ...]
+            avg_y = points_array[:, 1].astype(np.int32)
+            avg_x = points_array[:, 0].astype(np.int32)
+            averaged_points_coords = (avg_y, avg_x)  # Recreate tuple for indexing
 
-        # For each column, find the topmost point of the second longest contour
-        combined_mask = np.zeros_like(edges)
-        for x in range(edges.shape[1]):
-            column_mask = second_longest_mask[:, x]
-            y_coords = np.where(column_mask > 0)[0]
-            if len(y_coords) > 0:
-                # Fill everything above the topmost point of the second longest contour
-                combined_mask[: y_coords[0], x] = 255
+            # Draw the spline points
+            colored_edges[averaged_points_coords] = colors[i]
 
-        # Draw both contours on the combined mask for visualization
-        cv2.drawContours(
-            combined_mask,
-            [sorted_filtered_contours[0], second_longest_contour],
-            -1,
-            255,
-            1,
-        )
+            # Draw the lowest visible point of the spline
+            max_y_idx = np.argmax(points_array[:, 1])
+            lowest_visible_point = tuple(points_array[max_y_idx].astype(int))
+            cv2.circle(colored_edges, lowest_visible_point, 5, colors[i], -1)
 
-        return combined_mask, longest_contour, second_longest_contour
+        return colored_edges
 
-    def _get_masked_contour_length(
-        self, edges: np.ndarray, contour: np.ndarray, mask: np.ndarray
-    ) -> int:
-        temp_mask = np.zeros_like(edges)
-        cv2.drawContours(temp_mask, [contour], -1, 255, 2)
-        masked_contour = cv2.bitwise_and(temp_mask, mask)
+    def _average_y_coordinates(self, contour: np.ndarray) -> np.ndarray | None:
+        """Averages Y coordinates for each X coordinate in a contour."""
+        if contour is None or len(contour) == 0:
+            return None
 
-        return np.count_nonzero(masked_contour)
-
-    def _average_y_coordinates(self, masked_points: np.ndarray) -> np.ndarray:
-        y_coords = masked_points[0]
-        x_coords = masked_points[1]
+        # Extract points: contour shape is (N, 1, 2) -> get (N, 2)
+        points = contour.squeeze(axis=1)
+        x_coords = points[:, 0]
+        y_coords = points[:, 1]
 
         # Create a dictionary to store all y values for each x coordinate
         x_to_y_map = {}
@@ -205,72 +357,34 @@ class SplineDetector:
             x_to_y_map[x].append(y)
 
         # Calculate average y for each x
-        averaged_points = np.zeros((2, len(x_to_y_map)), dtype=np.int32)
+        if not x_to_y_map:
+            return None  # No points to average
+
+        num_averaged = len(x_to_y_map)
+        avg_y = np.zeros(num_averaged, dtype=np.int32)
+        avg_x = np.zeros(num_averaged, dtype=np.int32)
+
         for idx, (x, y_list) in enumerate(x_to_y_map.items()):
-            averaged_points[1, idx] = x  # x coordinate
-            averaged_points[0, idx] = int(np.mean(y_list))  # average y coordinate
+            avg_x[idx] = x
+            avg_y[idx] = int(np.mean(y_list))
 
-        return tuple(averaged_points)
+        # Return coordinates in (y_coords, x_coords) tuple format for drawing
+        return (avg_y, avg_x)
 
-    def _draw_splines(
-        self,
-        edges: np.ndarray,
-        sorted_contours: list[np.ndarray],
-        mask: np.ndarray,
-        colors: list[tuple[int, int, int]],
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Draws splines and returns both the colored edge image and spline coordinates.
+    def _get_masked_contour_length(
+        self, edges: np.ndarray, contour: np.ndarray, mask: np.ndarray
+    ) -> int:
+        # This function might be obsolete now or need adjustment if still used elsewhere
+        temp_mask = np.zeros_like(edges)
+        cv2.drawContours(temp_mask, [contour], -1, 255, 2)
+        masked_contour = cv2.bitwise_and(temp_mask, mask)
 
-        Args:
-            edges: Base image to determine dimensions
-            sorted_contours: List of contours sorted by length
-            mask: Height mask for filtering contours
-            colors: List of BGR colors for each spline
-
-        Returns:
-            tuple: (colored_edges image, spline_points)
-                - colored_edges: np.ndarray of the visualization
-                - spline_points: np.ndarray of shape (3,) containing arrays of points for
-                                 each spline
-                    Each interior array has shape (N, 2) where N is the number of points
-                    Format: [[x1,y1], [x2,y2], ...] for each spline
-        """
-        colored_edges = np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
-        spline_points = np.empty(3, dtype=object)  # Array to hold the 3 splines' points
-
-        # Process each contour (up to 3)
-        for i, contour in enumerate(sorted_contours[:3]):
-            contour_mask = np.zeros_like(edges)
-            cv2.drawContours(contour_mask, [contour], -1, 255, 2)
-            masked_contour = cv2.bitwise_and(contour_mask, mask)
-
-            # Find the masked contour points and average them
-            masked_points = np.where(masked_contour > 0)
-            averaged_points = self._average_y_coordinates(masked_points)
-
-            # Convert to (N,2) array format and store
-            points_array = np.column_stack(
-                (averaged_points[1], averaged_points[0])
-            )  # [[x1,y1], [x2,y2], ...]
-            spline_points[i] = points_array
-
-            # Draw the spline (for visualization)
-            colored_edges[averaged_points] = colors[i]
-
-            # Draw the lowest visible point
-            if points_array.size > 0:
-                max_y_idx = np.argmax(
-                    points_array[:, 1]
-                )  # Find point with largest y value
-                lowest_visible_point = tuple(points_array[max_y_idx])
-                cv2.circle(colored_edges, lowest_visible_point, 5, colors[i], -1)
-
-        return colored_edges, spline_points
+        return np.count_nonzero(masked_contour)
 
     def _save_image(
         self,
         base_name: str,
+        image_path: str,
         image: np.ndarray = None,
         gray_scale: np.ndarray = None,
         blurred: np.ndarray = None,
@@ -281,37 +395,43 @@ class SplineDetector:
         colored_edges: np.ndarray = None,
         overlay: np.ndarray = None,
     ):
+        # Create subdirectory structure based on input path
+        input_path = Path(image_path)
+        # Get the parent directory name (e.g., '107' from 'data/on_water_dataset/107/IMG_3048.jpg')
+        subdir_name = input_path.parent.name
+        # Create the output subdirectory
+        output_subdir = self.output_dir / subdir_name
+        output_subdir.mkdir(exist_ok=True)
+
         if image is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_original.png"), image)
+            cv2.imwrite(str(output_subdir / f"{base_name}_original.png"), image)
 
         if gray_scale is not None:
             cv2.imwrite(
-                str(self.output_dir / f"{base_name}_gray_red_pixels.png"),
+                str(output_subdir / f"{base_name}_gray_red_pixels.png"),
                 gray_scale,
             )
 
         if blurred is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_blurred.png"), blurred)
+            cv2.imwrite(str(output_subdir / f"{base_name}_blurred.png"), blurred)
 
         if dilated is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_dilated.png"), dilated)
+            cv2.imwrite(str(output_subdir / f"{base_name}_dilated.png"), dilated)
 
         if eroded is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_eroded.png"), eroded)
+            cv2.imwrite(str(output_subdir / f"{base_name}_eroded.png"), eroded)
 
         if edges is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_edges.png"), edges)
+            cv2.imwrite(str(output_subdir / f"{base_name}_edges.png"), edges)
 
         if contour_vis is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_contours.png"), contour_vis)
+            cv2.imwrite(str(output_subdir / f"{base_name}_contours.png"), contour_vis)
 
         if colored_edges is not None:
-            cv2.imwrite(
-                str(self.output_dir / f"{base_name}_splines.png"), colored_edges
-            )
+            cv2.imwrite(str(output_subdir / f"{base_name}_splines.png"), colored_edges)
 
         if overlay is not None:
-            cv2.imwrite(str(self.output_dir / f"{base_name}_overlay.png"), overlay)
+            cv2.imwrite(str(output_subdir / f"{base_name}_overlay.png"), overlay)
 
 
 if __name__ == "__main__":
