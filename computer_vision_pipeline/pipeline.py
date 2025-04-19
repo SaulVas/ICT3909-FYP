@@ -71,11 +71,6 @@ class SplineDetector:
             base_name,
             image_path,
             image=image,
-            gray_scale=gray_scale,
-            blurred=blurred,
-            dilated=dilated,
-            eroded=eroded,
-            edges=edges,
             colored_edges=colored_edges,
             overlay=overlay,
         )
