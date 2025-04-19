@@ -44,52 +44,6 @@ class SplineDetector:
         # Find the prioritized contours
         prioritized_contours = self._find_contours_by_priority(contours_all)
 
-        # # --- Debug: Save candidates for contour 2 ---
-        # if remaining_after_c1:  # Only save if there are candidates
-        #     debug_img_c2 = np.zeros_like(edges)  # Create black canvas
-        #     cv2.drawContours(
-        #         debug_img_c2, remaining_after_c1, -1, 255, 1
-        #     )  # Draw candidates in white
-
-        #     # Determine output path
-        #     input_path = Path(image_path)
-        #     subdir_name = input_path.parent.name
-        #     output_subdir = self.output_dir / subdir_name
-        #     output_subdir.mkdir(exist_ok=True)
-        #     debug_filename = output_subdir / f"{base_name}_debug_candidates_1.png"
-        #     cv2.imwrite(str(debug_filename), debug_img_c2)
-        # # --- End Debug ---
-
-        # if remaining_after_c2:  # Only save if there are candidates
-        #     debug_img_c2 = np.zeros_like(edges)  # Create black canvas
-        #     cv2.drawContours(
-        #         debug_img_c2, remaining_after_c2, -1, 255, 1
-        #     )  # Draw candidates in white
-
-        #     # Determine output path
-        #     input_path = Path(image_path)
-        #     subdir_name = input_path.parent.name
-        #     output_subdir = self.output_dir / subdir_name
-        #     output_subdir.mkdir(exist_ok=True)
-        #     debug_filename = output_subdir / f"{base_name}_debug_candidates_2.png"
-        #     cv2.imwrite(str(debug_filename), debug_img_c2)
-        # # --- End Debug ---
-
-        # if remaining_after_c3:  # Only save if there are candidates
-        #     debug_img_c2 = np.zeros_like(edges)  # Create black canvas
-        #     cv2.drawContours(
-        #         debug_img_c2, remaining_after_c3, -1, 255, 1
-        #     )  # Draw candidates in white
-
-        #     # Determine output path
-        #     input_path = Path(image_path)
-        #     subdir_name = input_path.parent.name
-        #     output_subdir = self.output_dir / subdir_name
-        #     output_subdir.mkdir(exist_ok=True)
-        #     debug_filename = output_subdir / f"{base_name}_debug_candidates_3.png"
-        #     cv2.imwrite(str(debug_filename), debug_img_c2)
-        # # --- End Debug ---
-
         # Calculate spline points from the selected contours
         spline_points = self._calculate_spline_points(prioritized_contours)
 
