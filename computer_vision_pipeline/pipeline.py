@@ -5,6 +5,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+# from scipy.interpolate import UnivariateSpline
+
 GREEN = (0, 255, 0)
 BLUE = (255, 0, 0)
 YELLOW = (0, 255, 255)
@@ -44,21 +46,25 @@ class SplineDetector:
         # Find the prioritized contours
         prioritized_contours = self._find_contours_by_priority(contours_all)
 
-        # Calculate spline points from the selected contours
-        spline_points = self._calculate_spline_points(prioritized_contours)
+        # Calculate smoothed points using moving average
+        smoothed_points = self._calculate_moving_average_points(prioritized_contours)
 
-        # Create visualization of the splines
-        colored_edges = self._create_spline_visualization(edges, spline_points, COLOURS)
+        # Create visualization of the smoothed curves
+        colored_edges = self._create_spline_visualization(
+            edges, smoothed_points, COLOURS
+        )
 
-        # Draw lines between points(only for visual purposes)
+        # Draw lines between points (only for visual purposes)
         for color_idx, contour in enumerate(prioritized_contours):
             if contour is None:
                 continue
-            points = spline_points[color_idx]
+            points = smoothed_points[color_idx]  # Use smoothed points
             if points is not None and len(points) > 1:
-                # Sort points by x-coordinate for line drawing
-                sorted_indices = np.argsort(points[:, 0])
-                sorted_points = points[sorted_indices]
+                # Points are already sorted by X in the moving average function
+                # No need to re-sort here, but ensure integer conversion for drawing
+                # sorted_indices = np.argsort(points[:, 0])
+                # sorted_points = points[sorted_indices]
+                sorted_points = points  # Use directly
 
                 for j in range(len(sorted_points) - 1):
                     pt1 = tuple(sorted_points[j].astype(int))
@@ -76,13 +82,13 @@ class SplineDetector:
             overlay=overlay,
         )
 
-        # Ensure spline_points has the correct structure even with None contours
-        final_spline_points = np.array(
-            [pts if pts is not None else np.array([]) for pts in spline_points],
+        # Ensure smoothed_points has the correct structure even with None contours
+        final_smoothed_points = np.array(
+            [pts if pts is not None else np.array([]) for pts in smoothed_points],
             dtype=object,
         )
         print(f"Processed {image_path}")
-        return final_spline_points
+        return final_smoothed_points
 
     def _extract_red_pixels(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # Convert directly to HSV
@@ -97,9 +103,9 @@ class SplineDetector:
         # Expanded HSV ranges to include all values
         ranges = [
             # Red at start of hue circle (0-15)
-            ([0, 3, 20], [15, 255, 255]),  # Lowered S minimum to catch desaturated reds
+            ([0, 3, 12], [15, 255, 255]),  # Lowered S minimum to catch desaturated reds
             # Purple/magenta through red range (135-180)
-            ([145, 3, 20], [180, 255, 255]),
+            ([145, 3, 12], [180, 255, 255]),
         ]
 
         # Create and combine all masks
@@ -242,50 +248,141 @@ class SplineDetector:
 
         return selected_contours
 
-    def _calculate_spline_points(
-        self, selected_contours: list[np.ndarray | None]
-    ) -> np.ndarray:
-        """Calculates the averaged spline points for selected contours."""
-        spline_points = np.empty(3, dtype=object)
+    def _moving_average(self, data: np.ndarray, window_size: int) -> np.ndarray:
+        """Applies a simple moving average using convolution."""
+        if window_size <= 1:
+            return data
+        # Ensure window size is odd for symmetrical 'same' mode padding
+        if window_size % 2 == 0:
+            window_size += 1
+            print(f"Adjusting window size to {window_size} for symmetry.")
+
+        # Handle cases where data is smaller than window size
+        effective_window_size = min(window_size, len(data))
+        if effective_window_size <= 1:
+            return data
+        # Ensure the effective window size is odd again after min()
+        if effective_window_size % 2 == 0:
+            effective_window_size = max(1, effective_window_size - 1)
+
+        if effective_window_size <= 1:
+            print(
+                f"Warning: Effective window size ({effective_window_size}) too small for moving average. Returning original data segment."
+            )
+            return data
+
+        weights = np.ones(effective_window_size) / effective_window_size
+        smoothed_data = np.convolve(data, weights, mode="same")
+
+        # Basic edge handling: replace edge values influenced by zero-padding
+        # with the original edge values for potentially better results.
+        half_window = effective_window_size // 2
+        smoothed_data[:half_window] = data[:half_window]
+        smoothed_data[-half_window:] = data[-half_window:]
+
+        return smoothed_data
+
+    def _calculate_moving_average_points(
+        self,
+        selected_contours: list[np.ndarray | None],
+        window_size: int = 21,  # Approx 10 points on each side + center
+        iterations: int = 3,
+    ) -> list[np.ndarray | None]:
+        """Calculates smoothed points using iterated moving average."""
+        smoothed_points_list = [None] * 3
+
         for i, contour in enumerate(selected_contours):
             if contour is None:
-                spline_points[i] = None
                 continue
+
+            # 1. Get the averaged points (already unique X)
             averaged_points_coords = self._average_y_coordinates(contour)
-            if averaged_points_coords is None:
-                spline_points[i] = None
+            if averaged_points_coords is None or len(averaged_points_coords[0]) < 1:
+                print(f"Warning: Contour {i} has no points for moving average.")
                 continue
-            points_array = np.column_stack(
-                (averaged_points_coords[1], averaged_points_coords[0])
-            )
-            spline_points[i] = points_array
-        return spline_points
+
+            avg_y, avg_x = averaged_points_coords
+
+            # 2. Ensure points are sorted by x-coordinate
+            sort_indices = np.argsort(avg_x)
+            x_sorted = avg_x[sort_indices]
+            y_sorted = avg_y[sort_indices]
+
+            # Check for duplicate x-values (should not happen with _average_y_coordinates)
+            if len(np.unique(x_sorted)) < len(x_sorted):
+                print(
+                    f"Warning: Duplicate x-coordinates found in contour {i}. Using original averaged points."
+                )
+                original_points = np.column_stack((x_sorted, y_sorted))
+                smoothed_points_list[i] = original_points
+                continue
+
+            # 3. Apply moving average iteratively
+            y_smoothed = y_sorted.astype(float)  # Use float for calculations
+
+            if len(y_smoothed) <= 1:
+                print(f"Warning: Only one point in contour {i}. Skipping smoothing.")
+                smoothed_points_list[i] = np.column_stack((x_sorted, y_sorted))
+                continue
+
+            for iter_num in range(iterations):
+                y_smoothed = self._moving_average(y_smoothed, window_size)
+                # Check if smoothing resulted in NaNs or Infs (can happen in edge cases)
+                if np.isnan(y_smoothed).any() or np.isinf(y_smoothed).any():
+                    print(
+                        f"Warning: NaN or Inf detected during smoothing iteration {iter_num + 1} for contour {i}. Reverting to previous state."
+                    )
+                    # Optionally revert to y_sorted or the state before this iteration
+                    # For now, let's just stop smoothing for this contour
+                    break
+
+            # 4. Combine into the final array (X, smoothed Y)
+            final_points = np.column_stack((x_sorted, y_smoothed))
+            smoothed_points_list[i] = final_points
+
+        return smoothed_points_list
 
     def _create_spline_visualization(
         self,
         edges: np.ndarray,
-        spline_points: np.ndarray,  # Takes the calculated points
+        smoothed_points: np.ndarray,  # Renamed parameter
         colors: list[tuple[int, int, int]],
     ) -> np.ndarray:
-        """Creates an image visualizing the calculated spline points."""
+        """Creates an image visualizing the smoothed points."""  # Docstring updated
         colored_edges = np.zeros_like(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
-        for i, points_array in enumerate(spline_points):
+        height, width = colored_edges.shape[:2]  # Get image dimensions
+
+        for i, points_array in enumerate(smoothed_points):  # Use renamed parameter
             if points_array is None or points_array.size == 0:
                 continue
 
-            # Average points are already calculated, need coords for drawing
-            # points_array is (N, 2) -> [[x1,y1], [x2,y2], ...]
-            avg_y = points_array[:, 1].astype(np.int32)
-            avg_x = points_array[:, 0].astype(np.int32)
-            averaged_points_coords = (avg_y, avg_x)  # Recreate tuple for indexing
+            # Extract coordinates from the smoothed points array
+            raw_x = points_array[:, 0]
+            raw_y = points_array[:, 1]
 
-            # Draw the spline points
-            colored_edges[averaged_points_coords] = colors[i]
+            # Clip coordinates to valid image bounds BEFORE converting to int
+            clipped_x = np.clip(raw_x, 0, width - 1)
+            clipped_y = np.clip(raw_y, 0, height - 1)
 
-            # Draw the lowest visible point of the spline
-            max_y_idx = np.argmax(points_array[:, 1])
-            lowest_visible_point = tuple(points_array[max_y_idx].astype(int))
-            cv2.circle(colored_edges, lowest_visible_point, 5, colors[i], -1)
+            # Convert clipped coordinates to integers for indexing
+            int_x = clipped_x.astype(np.int32)
+            int_y = clipped_y.astype(np.int32)
+
+            # Create tuple of valid integer coordinates
+            valid_coords = (int_y, int_x)
+
+            # Draw the smoothed points using valid coordinates
+            colored_edges[valid_coords] = colors[i]
+
+            # Draw the lowest *visible* point of the smoothed curve using clipped coordinates
+            # Make sure there are points to avoid error on empty array argmax
+            if clipped_y.size > 0:
+                max_y_idx = np.argmax(
+                    clipped_y
+                )  # Find index of max Y in the *clipped* data
+                # Get the corresponding X and Y from the *integer* arrays
+                lowest_visible_point = (int_x[max_y_idx], int_y[max_y_idx])
+                cv2.circle(colored_edges, lowest_visible_point, 5, colors[i], -1)
 
         return colored_edges
 
@@ -386,7 +483,7 @@ class SplineDetector:
 
 if __name__ == "__main__":
     # Define the dataset path
-    DATASET_PATH = "data/debug_dataset"
+    DATASET_PATH = "data/on_water_dataset"
 
     # Check if the directory exists
     if not os.path.exists(DATASET_PATH):
