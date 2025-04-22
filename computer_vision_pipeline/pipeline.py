@@ -103,7 +103,7 @@ class SplineDetector:
         # Expanded HSV ranges to include all values
         ranges = [
             # Red at start of hue circle (0-15)
-            ([0, 3, 12], [15, 255, 255]),  # Lowered S minimum to catch desaturated reds
+            ([0, 3, 12], [5, 255, 255]),  # Lowered S minimum to catch desaturated reds
             # Purple/magenta through red range (135-180)
             ([145, 3, 12], [180, 255, 255]),
         ]
