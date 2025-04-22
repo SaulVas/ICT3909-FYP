@@ -70,6 +70,7 @@ class SplineDetector:
         self._save_image(
             base_name,
             image_path,
+            edges=edges,
             image=image,
             colored_edges=colored_edges,
             overlay=overlay,
@@ -385,7 +386,7 @@ class SplineDetector:
 
 if __name__ == "__main__":
     # Define the dataset path
-    DATASET_PATH = "data/on_water_dataset"
+    DATASET_PATH = "data/debug_dataset"
 
     # Check if the directory exists
     if not os.path.exists(DATASET_PATH):
