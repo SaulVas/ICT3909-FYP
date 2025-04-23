@@ -102,10 +102,7 @@ class SplineDetector:
 
         # Expanded HSV ranges to include all values
         ranges = [
-            # Red at start of hue circle (0-15)
-            ([0, 3, 12], [5, 255, 255]),  # Lowered S minimum to catch desaturated reds
-            # Purple/magenta through red range (135-180)
-            ([145, 3, 12], [180, 255, 255]),
+            ([145, 20, 12], [180, 255, 255]),
         ]
 
         # Create and combine all masks
@@ -249,44 +246,45 @@ class SplineDetector:
         return selected_contours
 
     def _moving_average(self, data: np.ndarray, window_size: int) -> np.ndarray:
-        """Applies a simple moving average using convolution."""
+        """Applies a moving average with dynamically shrinking windows at edges."""
         if window_size <= 1:
-            return data
-        # Ensure window size is odd for symmetrical 'same' mode padding
+            return data.copy()  # Return a copy to avoid modifying original
+
+        # Ensure window size is odd for symmetry
         if window_size % 2 == 0:
             window_size += 1
-            print(f"Adjusting window size to {window_size} for symmetry.")
+            print(f"Adjusting target window size to {window_size} for symmetry.")
 
-        # Handle cases where data is smaller than window size
-        effective_window_size = min(window_size, len(data))
-        if effective_window_size <= 1:
-            return data
-        # Ensure the effective window size is odd again after min()
-        if effective_window_size % 2 == 0:
-            effective_window_size = max(1, effective_window_size - 1)
+        n = len(data)
+        target_half_window = window_size // 2
+        smoothed_data = np.zeros_like(data, dtype=float)  # Use float for means
 
-        if effective_window_size <= 1:
-            print(
-                f"Warning: Effective window size ({effective_window_size}) too small for moving average. Returning original data segment."
-            )
-            return data
+        for i in range(n):
+            # Determine the maximum possible half-window size centered at i
+            # limited by distance to edges and the target size
+            dist_to_start = i
+            dist_to_end = n - 1 - i
+            actual_half_window = min(target_half_window, dist_to_start, dist_to_end)
 
-        weights = np.ones(effective_window_size) / effective_window_size
-        smoothed_data = np.convolve(data, weights, mode="same")
+            # Calculate window bounds based on the actual (potentially smaller) half-window
+            start_idx = i - actual_half_window
+            end_idx = i + actual_half_window + 1  # +1 for Python slicing
 
-        # Basic edge handling: replace edge values influenced by zero-padding
-        # with the original edge values for potentially better results.
-        half_window = effective_window_size // 2
-        smoothed_data[:half_window] = data[:half_window]
-        smoothed_data[-half_window:] = data[-half_window:]
+            # Calculate mean over the dynamically sized window
+            window_slice = data[start_idx:end_idx]
+            if window_slice.size > 0:
+                smoothed_data[i] = np.mean(window_slice)
+            else:
+                # Should not happen if data has elements, but handle defensively
+                smoothed_data[i] = data[i]
 
-        return smoothed_data
+        return smoothed_data  # Keep as float for now
 
     def _calculate_moving_average_points(
         self,
         selected_contours: list[np.ndarray | None],
         window_size: int = 21,  # Approx 10 points on each side + center
-        iterations: int = 3,
+        iterations: int = 5,
     ) -> list[np.ndarray | None]:
         """Calculates smoothed points using iterated moving average."""
         smoothed_points_list = [None] * 3
