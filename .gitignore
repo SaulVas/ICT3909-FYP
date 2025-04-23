@@ -175,4 +175,10 @@ neural_network_framework/models/*
 
 data/on_water_dataset/*
 
+data/*
+
+outputs/*
+
+previous_outputs_to_find_flapping_sails/*
+
 .DS_Store
