@@ -13,7 +13,7 @@ YELLOW = (0, 255, 255)
 COLOURS = [YELLOW, GREEN, BLUE]
 
 
-class SplineDetector:
+class Detector:
     def __init__(self, output_path: str):
         self.output_dir = Path(output_path)
         self.output_dir.mkdir(exist_ok=True)
@@ -487,7 +487,7 @@ if __name__ == "__main__":
             f"Dataset directory '{DATASET_PATH}' not found or is not a directory"
         )
 
-    detector = SplineDetector("outputs")
+    detector = Detector("outputs")
 
     # Iterate through each item in the dataset path
     for subdir_path in DATASET_PATH.iterdir():
