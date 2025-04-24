@@ -1,6 +1,5 @@
-# pylint: disable=no-member
+# pylint: disable=no-member, redefined-outer-name
 
-import os
 from pathlib import Path
 import cv2
 import numpy as np
@@ -15,16 +14,14 @@ COLOURS = [YELLOW, GREEN, BLUE]
 
 
 class SplineDetector:
-    def __init__(self, input_images: list[str]):
-        self.image_paths = input_images
-        # Create base output directory if it doesn't exist
-        self.output_dir = Path("outputs")
+    def __init__(self, output_path: str):
+        self.output_dir = Path(output_path)
         self.output_dir.mkdir(exist_ok=True)
 
-        for image_path in self.image_paths:
-            self._extract_spline_data(image_path)
+    def __call__(self, image_path: str, debug_saves: bool = False) -> np.ndarray:
+        return self._extract_spline_data(image_path, debug_saves)
 
-    def _extract_spline_data(self, image_path: str) -> np.ndarray:
+    def _extract_spline_data(self, image_path: str, debug_saves: bool) -> np.ndarray:
         base_name = Path(image_path).stem
         image = cv2.imread(image_path)
         if image is None:
@@ -49,38 +46,39 @@ class SplineDetector:
         # Calculate smoothed points using moving average
         smoothed_points = self._calculate_moving_average_points(prioritized_contours)
 
-        # Create visualization of the smoothed curves
-        colored_edges = self._create_spline_visualization(
-            edges, smoothed_points, COLOURS
-        )
+        if debug_saves:
+            # Create visualization of the smoothed curves
+            colored_edges = self._create_spline_visualization(
+                edges, smoothed_points, COLOURS
+            )
 
-        # Draw lines between points (only for visual purposes)
-        for color_idx, contour in enumerate(prioritized_contours):
-            if contour is None:
-                continue
-            points = smoothed_points[color_idx]  # Use smoothed points
-            if points is not None and len(points) > 1:
-                # Points are already sorted by X in the moving average function
-                # No need to re-sort here, but ensure integer conversion for drawing
-                # sorted_indices = np.argsort(points[:, 0])
-                # sorted_points = points[sorted_indices]
-                sorted_points = points  # Use directly
+            # Draw lines between points (only for visual purposes)
+            for color_idx, contour in enumerate(prioritized_contours):
+                if contour is None:
+                    continue
+                points = smoothed_points[color_idx]  # Use smoothed points
+                if points is not None and len(points) > 1:
+                    # Points are already sorted by X in the moving average function
+                    # No need to re-sort here, but ensure integer conversion for drawing
+                    # sorted_indices = np.argsort(points[:, 0])
+                    # sorted_points = points[sorted_indices]
+                    sorted_points = points  # Use directly
 
-                for j in range(len(sorted_points) - 1):
-                    pt1 = tuple(sorted_points[j].astype(int))
-                    pt2 = tuple(sorted_points[j + 1].astype(int))
-                    cv2.line(colored_edges, pt1, pt2, COLOURS[color_idx], 2)
+                    for j in range(len(sorted_points) - 1):
+                        pt1 = tuple(sorted_points[j].astype(int))
+                        pt2 = tuple(sorted_points[j + 1].astype(int))
+                        cv2.line(colored_edges, pt1, pt2, COLOURS[color_idx], 2)
 
-        overlay = image.copy()
-        overlay = cv2.addWeighted(overlay, 1.0, colored_edges, 1.0, 0)
-        self._save_image(
-            base_name,
-            image_path,
-            edges=edges,
-            image=image,
-            colored_edges=colored_edges,
-            overlay=overlay,
-        )
+            overlay = image.copy()
+            overlay = cv2.addWeighted(overlay, 1.0, colored_edges, 1.0, 0)
+            self._save_image(
+                base_name,
+                image_path,
+                edges=edges,
+                image=image,
+                colored_edges=colored_edges,
+                overlay=overlay,
+            )
 
         # Ensure smoothed_points has the correct structure even with None contours
         final_smoothed_points = np.array(
@@ -481,23 +479,35 @@ class SplineDetector:
 
 if __name__ == "__main__":
     # Define the dataset path
-    DATASET_PATH = "data/on_water_dataset"
+    DATASET_PATH = Path("data/on_water_dataset")  # Use Path object directly
 
     # Check if the directory exists
-    if not os.path.exists(DATASET_PATH):
-        raise FileNotFoundError(f"Dataset directory '{DATASET_PATH}' not found")
-
-    # Find all images recursively
-    image_files = []
-    for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
-        image_files.extend(str(p) for p in Path(DATASET_PATH).rglob(ext))
-
-    if not image_files:
+    if not DATASET_PATH.is_dir():  # Check if it's a directory
         raise FileNotFoundError(
-            f"No image files found in '{DATASET_PATH}' or its subdirectories"
+            f"Dataset directory '{DATASET_PATH}' not found or is not a directory"
         )
 
-    print(f"Found {len(image_files)} images")
+    detector = SplineDetector("outputs")
 
-    # Initialize the SplineDetector with the image files
-    detector = SplineDetector(image_files)
+    # Iterate through each item in the dataset path
+    for subdir_path in DATASET_PATH.iterdir():
+        # Check if the item is a directory
+        if subdir_path.is_dir():
+            print(f"--- Processing subdirectory: {subdir_path.name} ---")
+
+            # Find image files within this specific subdirectory (not recursive)
+            image_files_in_subdir = []
+            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+                # Use glob on the specific subdirectory path
+                image_files_in_subdir.extend(str(p) for p in subdir_path.glob(ext))
+
+            if not image_files_in_subdir:
+                print(f"No image files found in '{subdir_path.name}'")
+                continue  # Move to the next subdirectory
+
+            print(f"Found {len(image_files_in_subdir)} images in '{subdir_path.name}'")
+
+            for image_path in image_files_in_subdir:
+                splines = detector(image_path, debug_saves=True)
+
+    print("--- All subdirectories processed ---")
