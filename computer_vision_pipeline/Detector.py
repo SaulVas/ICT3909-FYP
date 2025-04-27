@@ -475,39 +475,3 @@ class Detector:
 
         if overlay is not None:
             cv2.imwrite(str(output_subdir / f"{base_name}_overlay.png"), overlay)
-
-
-if __name__ == "__main__":
-    # Define the dataset path
-    DATASET_PATH = Path("data/on_water_dataset")  # Use Path object directly
-
-    # Check if the directory exists
-    if not DATASET_PATH.is_dir():  # Check if it's a directory
-        raise FileNotFoundError(
-            f"Dataset directory '{DATASET_PATH}' not found or is not a directory"
-        )
-
-    detector = Detector("outputs")
-
-    # Iterate through each item in the dataset path
-    for subdir_path in DATASET_PATH.iterdir():
-        # Check if the item is a directory
-        if subdir_path.is_dir():
-            print(f"--- Processing subdirectory: {subdir_path.name} ---")
-
-            # Find image files within this specific subdirectory (not recursive)
-            image_files_in_subdir = []
-            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
-                # Use glob on the specific subdirectory path
-                image_files_in_subdir.extend(str(p) for p in subdir_path.glob(ext))
-
-            if not image_files_in_subdir:
-                print(f"No image files found in '{subdir_path.name}'")
-                continue  # Move to the next subdirectory
-
-            print(f"Found {len(image_files_in_subdir)} images in '{subdir_path.name}'")
-
-            for image_path in image_files_in_subdir:
-                splines = detector(image_path, debug_saves=True)
-
-    print("--- All subdirectories processed ---")
