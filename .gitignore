@@ -181,4 +181,6 @@ outputs/*
 
 previous_outputs_to_find_flapping_sails/*
 
+debugging_plots/*
+
 .DS_Store
