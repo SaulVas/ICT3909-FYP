@@ -26,7 +26,7 @@ class Extractor:
         for index, spline in enumerate(image_splines):
             if len(spline) < num_new_points:
                 print(f"Spline {index} has less than {num_new_points} points.")
-                tcd_data[index] = ((0.0, 0.0, 0.0), 0.0)
+                tcd_data[index] = ((0.0, 0.0, 0.0), 0.0, [])
                 continue
 
             reduced_spline = self._interpolate_spline_points(spline, num_new_points)
@@ -53,7 +53,11 @@ class Extractor:
                     tcd_result[1],
                     tcd_result[2],
                 )
-                tcd_data[index] = (processed_tcd, straight_line_length)
+                tcd_data[index] = (
+                    processed_tcd,
+                    straight_line_length,
+                    reduced_spline.tolist(),
+                )
 
         return dict(tcd_data)
 
