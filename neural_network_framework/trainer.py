@@ -126,7 +126,10 @@ class Trainer:
                 best_val_loss = val_loss
                 patience_counter = 0
                 # Save best model
-                torch.save(self.model.state_dict(), "best_model.pt")
+                torch.save(
+                    self.model.state_dict(),
+                    "neural_network_framework/models/early_stopping/best_model.pt",
+                )
             else:
                 patience_counter += 1
                 if patience_counter >= early_stopping_patience:
@@ -137,7 +140,9 @@ class Trainer:
         training_time = time.time() - start_time
 
         # Load best model
-        self.model.load_state_dict(torch.load("best_model.pt"))
+        self.model.load_state_dict(
+            torch.load("neural_network_framework/models/early_stopping/best_model.pt")
+        )
 
         # Save training history plot if visualizer is available
         if self.visualizer is not None:

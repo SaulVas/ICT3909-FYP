@@ -20,14 +20,14 @@ class Evaluator:
         self.subdir_errors = {}
         self.threshold = 0.0
 
-    def __call__(self, csv_path: str, debugging: bool = False):
+    def __call__(self, csv_path: str, save_path: str, debugging: bool = False):
         self._process_spline_data()
         self._calculate_stats()
 
         if debugging:
             self._plot_results()
 
-        self._save_data_to_csv(csv_path)
+        self._save_data_to_csv(csv_path, save_path)
 
     def _process_spline_data(self):
         for subdir, image_data in self.spline_data.items():
@@ -82,7 +82,7 @@ class Evaluator:
             else:
                 self.subdir_errors[subdir] = True  # Error
 
-    def _save_data_to_csv(self, path_to_csv: str):
+    def _save_data_to_csv(self, path_to_csv: str, save_path: str):
         if not path_to_csv.lower().endswith(".csv"):
             raise ValueError(f"The provided path '{path_to_csv}' is not a CSV file.")
 
@@ -177,7 +177,7 @@ class Evaluator:
             df[col_name] = data_list
 
         df.to_csv(
-            path_to_csv, index=False
+            save_path, index=False
         )  # Overwrite the original file, don't write pandas index
         print(f"Successfully updated and saved data to {path_to_csv}")
 

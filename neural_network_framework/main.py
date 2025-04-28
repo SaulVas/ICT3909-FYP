@@ -21,10 +21,10 @@ USE_K_FOLD = True
 N_TRIALS = 10
 
 # Create visualizer for plotting
-visualizer = Visualizer(output_dir="plots")
+visualizer = Visualizer(output_dir="neural_network_framework/plots")
 
 # Check target dimensions before training
-preprocessor = Preprocessing("../data/mock/mock_dataset.csv", device=device)
+preprocessor = Preprocessing("data/on_water_dataset/processed_data.csv", device=device)
 preprocessor.preprocess()
 
 X_train, y_train, X_val, y_val, X_test, y_test = preprocessor.split_data()
@@ -122,7 +122,9 @@ print(f"Training time: {training_time:.2f} seconds")
 
 # Save the model
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-torch.save(model.state_dict(), f"models/best_model_{timestamp}.pt")
+torch.save(
+    model.state_dict(), f"neural_network_framework/models/best_model_{timestamp}.pt"
+)
 print(f"Model saved to best_model_{timestamp}.pt")
 
 # Print location of saved plots
