@@ -1,10 +1,11 @@
 import json
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm  # Import colormap functionality
 from Extractor import Extractor
 from Detector import Detector
-from pathlib import Path
+from Evaluator import Evaluator
 
 
 def run_extractor():
@@ -416,4 +417,6 @@ if __name__ == "__main__":
             f"Warning: An unexpected error occurred loading {ground_truth_file}: {e}. Ground truth highlighting disabled."
         )
 
-    evaluate_pipeline(spline_data=spline_data, ground_truth=ground_truth_set)
+    evaluator = Evaluator(spline_data, ground_truth_set)
+
+    evaluator()
