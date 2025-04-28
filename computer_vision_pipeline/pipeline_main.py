@@ -107,4 +107,7 @@ if __name__ == "__main__":
 
     evaluator = Evaluator(spline_data, ground_truth_set)
 
-    evaluator(csv_path="data/on_water_dataset/collected_data.csv")
+    evaluator(
+        csv_path="data/on_water_dataset/collected_data.csv",
+        save_path="data/on_water_dataset/processed_data.csv",
+    )
