@@ -33,12 +33,12 @@ def objective(
     n_layers = trial.suggest_int("n_layers", 1, 3)
 
     hidden_layers = []
-    dropout_rates = []
+    # Only suggest dropout rate for the last layer
+    dropout_rate = trial.suggest_float("dropout_rate", 0.0, 0.5)
 
-    # Define layer sizes and dropout rates
+    # Define layer sizes
     for i in range(n_layers):
         hidden_layers.append(trial.suggest_int(f"hidden_layer_{i+1}_size", 8, 256))
-        dropout_rates.append(trial.suggest_float(f"dropout_rate_{i+1}", 0.0, 0.5))
 
     # Learning parameters
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
@@ -49,7 +49,7 @@ def objective(
         input_dim=input_dim,
         output_dim=output_dim,
         hidden_layers=hidden_layers,
-        dropout_rates=dropout_rates,
+        dropout_rates=[dropout_rate],  # Only pass single dropout rate
     ).to(device)
 
     # Create trainer
@@ -142,11 +142,11 @@ def run_optuna_study(
     # Extract best parameters in the format expected by FeedForwardNN
     n_layers = trial.params["n_layers"]
     hidden_layers = [trial.params[f"hidden_layer_{i+1}_size"] for i in range(n_layers)]
-    dropout_rates = [trial.params[f"dropout_rate_{i+1}"] for i in range(n_layers)]
+    dropout_rate = trial.params["dropout_rate"]
 
     best_params = {
         "hidden_layers": hidden_layers,
-        "dropout_rates": dropout_rates,
+        "dropout_rates": [dropout_rate],  # Only pass single dropout rate
         "learning_rate": trial.params["learning_rate"],
         "weight_decay": trial.params["weight_decay"],
     }
