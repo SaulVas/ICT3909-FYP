@@ -10,13 +10,13 @@ class FeedForwardNN(nn.Module):
             input_dim (int): Dimension of input features
             output_dim (int): Dimension of output (default: 1 for regression)
             hidden_layers (list): List of integers representing the size of each hidden layer
-            dropout_rates (list): List of dropout rates for each layer
+            dropout_rates (list): List containing a single dropout rate to be applied before the output layer
         """
         super(FeedForwardNN, self).__init__()
 
         self.input_dim = input_dim
         self.hidden_layers = hidden_layers
-        self.dropout_rates = dropout_rates
+        self.dropout_rate = dropout_rates[0]  # Get the single dropout rate
         self.output_dim = output_dim
 
         # Create network layers dynamically
@@ -26,14 +26,14 @@ class FeedForwardNN(nn.Module):
         prev_dim = input_dim
 
         # Hidden layers
-        for _, (hidden_dim, dropout_rate) in enumerate(
-            zip(hidden_layers, dropout_rates)
-        ):
+        for hidden_dim in hidden_layers:
             layers.append(nn.Linear(prev_dim, hidden_dim))
             layers.append(nn.ReLU())
-            if dropout_rate > 0:
-                layers.append(nn.Dropout(dropout_rate))
             prev_dim = hidden_dim
+
+        # Add dropout before output layer if dropout rate > 0
+        if self.dropout_rate > 0:
+            layers.append(nn.Dropout(self.dropout_rate))
 
         # Output layer
         layers.append(nn.Linear(prev_dim, output_dim))
