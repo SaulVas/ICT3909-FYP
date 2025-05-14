@@ -56,7 +56,7 @@ class StackedEnsemble:
         trial: optuna.Trial,
         X: np.ndarray,
         y: np.ndarray,
-        num_splits: int = 5,
+        num_splits: int = 10,
     ) -> float:
         """
         Optuna objective function for Random Forest hyperparameter tuning using 5-fold CV.
@@ -202,6 +202,9 @@ class StackedEnsemble:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Generate out-of-fold predictions for both base models.
+        For FFNN, implements nested cross-validation with:
+        - Outer loop: n_folds for OOF predictions
+        - Inner loop: Split training data to have separate validation set for early stopping
 
         Args:
             X: Input features
@@ -211,25 +214,44 @@ class StackedEnsemble:
         Returns:
             Tuple of (rf_oof_preds, ffnn_oof_preds)
         """
-        kf = KFold(n_splits=self.n_folds, shuffle=True, random_state=self.random_state)
+        kf_outer = KFold(
+            n_splits=self.n_folds, shuffle=True, random_state=self.random_state
+        )
         rf_oof_preds = np.zeros_like(y)
         ffnn_oof_preds = np.zeros_like(y)
 
-        for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
+        for fold, (train_idx, oof_idx) in enumerate(kf_outer.split(X)):
             print(f"Generating OOF predictions for fold {fold + 1}/{self.n_folds}")
 
-            # Split data
-            X_train, X_val = X[train_idx], X[val_idx]
-            y_train, y_val = y[train_idx], y[val_idx]
+            # Split data for outer fold
+            X_train_outer, X_oof = X[train_idx], X[oof_idx]
+            y_train_outer, _ = y[train_idx], y[oof_idx]
 
-            # Train RF model
+            # Train RF model on all training data from outer fold
             rf = RandomForestRegressor(
                 **self.best_rf_params, random_state=self.random_state
             )
-            rf.fit(X_train, y_train)
-            rf_oof_preds[val_idx] = rf.predict(X_val)
+            rf.fit(X_train_outer, y_train_outer)
 
-            # Train FFNN model
+            # Generate OOF predictions for RF
+            rf_oof_preds[oof_idx] = rf.predict(X_oof)
+
+            # For FFNN, create inner fold for validation (early stopping)
+            # Use n_inner_folds=9 for the inner loop (8:1 train-val split)
+            n_inner_folds = 9
+            kf_inner = KFold(
+                n_splits=n_inner_folds, shuffle=True, random_state=self.random_state
+            )
+
+            # Get one split for inner validation
+            inner_train_idx, inner_val_idx = next(kf_inner.split(X_train_outer))
+
+            X_train_inner = X_train_outer[inner_train_idx]
+            y_train_inner = y_train_outer[inner_train_idx]
+            X_val_inner = X_train_outer[inner_val_idx]
+            y_val_inner = y_train_outer[inner_val_idx]
+
+            # Train FFNN model with inner validation split
             ffnn = FeedForwardNN(
                 input_dim=self.input_dim,
                 output_dim=self.output_dim,
@@ -245,31 +267,31 @@ class StackedEnsemble:
                 visualizer=self.visualizer,
             )
 
-            # Create data loaders for this fold using TCDDataset
-            train_dataset = TCDDataset(X_train, y_train)
-            val_dataset = TCDDataset(X_val, y_val)
+            # Create data loaders for inner fold using TCDDataset
+            train_dataset = TCDDataset(X_train_inner, y_train_inner)
+            val_dataset = TCDDataset(X_val_inner, y_val_inner)
 
-            fold_train_loader = torch.utils.data.DataLoader(
+            inner_train_loader = torch.utils.data.DataLoader(
                 train_dataset, batch_size=train_loader.batch_size, shuffle=True
             )
-            fold_val_loader = torch.utils.data.DataLoader(
+            inner_val_loader = torch.utils.data.DataLoader(
                 val_dataset, batch_size=len(val_dataset)
             )
 
-            # Train FFNN
+            # Train FFNN with early stopping on inner validation set
             trainer.train(
-                train_loader=fold_train_loader,
-                val_loader=fold_val_loader,
+                train_loader=inner_train_loader,
+                val_loader=inner_val_loader,
                 epochs=200,
                 early_stopping_patience=10,
                 verbose=False,
             )
 
-            # Get FFNN predictions
+            # Generate OOF predictions for FFNN using the true OOF data
             ffnn.eval()
             with torch.no_grad():
-                ffnn_oof_preds[val_idx] = (
-                    ffnn(torch.FloatTensor(X_val).to(self.device)).cpu().numpy()
+                ffnn_oof_preds[oof_idx] = (
+                    ffnn(torch.FloatTensor(X_oof).to(self.device)).cpu().numpy()
                 )
 
         return rf_oof_preds, ffnn_oof_preds

@@ -5,6 +5,7 @@ from preprocessor import Preprocessing, TCDDataset
 from visualisation import Visualizer
 from ensemble import StackedEnsemble
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import time
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -89,17 +90,25 @@ ensemble.train_meta_learner(
 # Step 4: Evaluate on test set
 print("\nStep 4: Evaluating on test set...")
 
-# Get predictions from all models
+# Get predictions from all models with timing
+print("\nMeasuring prediction times...")
+
+# Time ensemble predictions
+start_time = time.time()
 ensemble_preds = ensemble.predict(X_test)
+ensemble_time = time.time() - start_time
 
-# Get RF predictions
+# Time RF predictions
+start_time = time.time()
 rf_preds = ensemble.rf_model.predict(X_test)
+rf_time = time.time() - start_time
 
-
-# Get FFNN predictions
+# Time FFNN predictions
+start_time = time.time()
 ensemble.ffnn_model.eval()
 with torch.no_grad():
     ffnn_preds = ensemble.ffnn_model(torch.FloatTensor(X_test).to(device)).cpu().numpy()
+ffnn_time = time.time() - start_time
 
 # Calculate metrics for each model
 ensemble_mse = mean_squared_error(y_test, ensemble_preds)
@@ -111,10 +120,32 @@ rf_mae = mean_absolute_error(y_test, rf_preds)
 ffnn_mse = mean_squared_error(y_test, ffnn_preds)
 ffnn_mae = mean_absolute_error(y_test, ffnn_preds)
 
+# Calculate time per individual prediction
+n_samples = len(X_test)
+ensemble_time_per_pred = ensemble_time / n_samples
+rf_time_per_pred = rf_time / n_samples
+ffnn_time_per_pred = ffnn_time / n_samples
+
 print("\nTest Set Results:")
+print(f"Number of test samples: {n_samples}")
 print(f"Ensemble - MSE: {ensemble_mse:.6f}, MAE: {ensemble_mae:.6f}")
+print(
+    f"  Total time: {ensemble_time:.4f}s, Time per prediction: {ensemble_time_per_pred*1000:.4f}ms"
+)
 print(f"Random Forest - MSE: {rf_mse:.6f}, MAE: {rf_mae:.6f}")
+print(
+    f"  Total time: {rf_time:.4f}s, Time per prediction: {rf_time_per_pred*1000:.4f}ms"
+)
 print(f"FFNN - MSE: {ffnn_mse:.6f}, MAE: {ffnn_mae:.6f}")
+print(
+    f"  Total time: {ffnn_time:.4f}s, Time per prediction: {ffnn_time_per_pred*1000:.4f}ms"
+)
+
+# Calculate average prediction time
+avg_prediction_time = (ensemble_time + rf_time + ffnn_time) / 3
+avg_time_per_pred = (ensemble_time_per_pred + rf_time_per_pred + ffnn_time_per_pred) / 3
+print(f"\nAverage total prediction time: {avg_prediction_time:.4f}s")
+print(f"Average time per prediction: {avg_time_per_pred*1000:.4f}ms")
 
 # Save meta-weights
 print("\nSaving meta-weights...")

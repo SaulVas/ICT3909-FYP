@@ -74,6 +74,8 @@ class Detector:
             self._save_image(
                 base_name,
                 image_path,
+                gray_scale=gray_scale,
+                eroded=eroded,
                 edges=edges,
                 image=image,
                 colored_edges=colored_edges,

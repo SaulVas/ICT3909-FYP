@@ -117,7 +117,12 @@ class Evaluator:
             subdir_key = str(idx_val)
             spline_info = self.reduced_spline_data.get(subdir_key)
 
-            if spline_info:
+            # Skip outliers - only add data for non-error subdirectories
+            is_outlier = self.subdir_errors.get(
+                subdir_key, True
+            )  # Default to True if not found
+
+            if spline_info and not is_outlier:
                 tcd_low = (
                     spline_info.get("0", [np.nan])[0]
                     if isinstance(spline_info.get("0"), list) and spline_info.get("0")
@@ -179,7 +184,7 @@ class Evaluator:
         df.to_csv(
             save_path, index=False
         )  # Overwrite the original file, don't write pandas index
-        print(f"Successfully updated and saved data to {path_to_csv}")
+        print(f"Successfully updated and saved data to {save_path}")
 
     def _plot_results(self):
         subdirs = list(self.subdir_means.keys())
